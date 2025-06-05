@@ -1,0 +1,239 @@
+from zipfile import ZipFile
+import os
+
+# Recreate game directory and content after environment reset
+game_dir = "/mnt/data/tic_tac_toe_webapp"
+os.makedirs(game_dir, exist_ok=True)
+
+# HTML content for the game
+html_content = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>🔥 Smart Tic Tac Toe</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to right, #1f1c2c, #928dab);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    h1 { margin-bottom: 10px; }
+    .mode-buttons {
+      margin-bottom: 20px;
+    }
+    .mode-buttons button {
+      padding: 10px 20px;
+      margin: 5px;
+      background: #00ffff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .mode-buttons button.ai-btn {
+      background: #ff7f50;
+    }
+    .mode-buttons button:hover {
+      opacity: 0.8;
+    }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      gap: 10px;
+      margin: 10px auto;
+    }
+    .cell {
+      width: 100px;
+      height: 100px;
+      background: #333;
+      border-radius: 8px;
+      font-size: 2.5em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .cell.x { color: #00ff00; }
+    .cell.o { color: #ff007f; }
+    #status, .scoreboard, #timer {
+      margin-top: 10px;
+      font-size: 1.2em;
+    }
+    .overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.95);
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+    }
+    .overlay div {
+      font-size: 2em;
+      margin-bottom: 20px;
+    }
+    .overlay button {
+      padding: 10px 20px;
+      font-size: 1em;
+      background: #00ffff;
+      color: black;
+      border: none;
+      border-radius: 5px;
+    }
+    .overlay button:hover {
+      background: #00cccc;
+    }
+    audio { display: none; }
+  </style>
+</head>
+<body>
+  <h1>🔥 Smart Tic Tac Toe</h1>
+  <div class="mode-buttons">
+    <button onclick="startGame('2P')">🎮 2 Player</button>
+    <button class="ai-btn" onclick="startGame('AI')">🤖 Play with AI</button>
+  </div>
+  <div class="scoreboard" id="scoreboard">X: 0 | O: 0</div>
+  <div class="board" id="board"></div>
+  <div id="status">Choose Mode to Start</div>
+  <div id="timer"></div>
+  <div class="overlay" id="overlay">
+    <div id="resultText"></div>
+    <button onclick="startGame(currentMode)">🔁 Play Again</button>
+  </div>
+  <!-- Sounds -->
+  <audio id="clickSoundX" src="https://www.soundjay.com/button/button-29.mp3"></audio>
+  <audio id="clickSoundO" src="https://www.soundjay.com/button/button-09.mp3"></audio>
+  <audio id="winSound" src="https://www.soundjay.com/human/applause-8.mp3"></audio>
+  <audio id="drawSound" src="https://www.soundjay.com/button/button-10.wav"></audio>
+  <audio id="bgMusic" src="https://www.bensound.com/bensound-music/bensound-dubstep.mp3" autoplay loop></audio>
+  <script>
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const overlay = document.getElementById("overlay");
+    const resultText = document.getElementById("resultText");
+    const scoreboardEl = document.getElementById("scoreboard");
+    const timerEl = document.getElementById("timer");
+    const clickSoundX = document.getElementById("clickSoundX");
+    const clickSoundO = document.getElementById("clickSoundO");
+    const winSound = document.getElementById("winSound");
+    const drawSound = document.getElementById("drawSound");
+    let board, currentPlayer, gameActive, scores = { X: 0, O: 0 }, currentMode;
+    let turnTimer;
+    function startGame(mode) {
+      currentMode = mode;
+      board = Array(9).fill("");
+      currentPlayer = "X";
+      gameActive = true;
+      overlay.style.display = "none";
+      statusEl.textContent = `Player ${currentPlayer}'s turn`;
+      renderBoard();
+      updateScore();
+      startTimer();
+    }
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      board.forEach((value, index) => {
+        const cell = document.createElement("div");
+        cell.classList.add("cell");
+        if (value) {
+          cell.textContent = value;
+          cell.classList.add(value.toLowerCase());
+        }
+        cell.addEventListener("click", () => handleClick(index));
+        boardEl.appendChild(cell);
+      });
+    }
+    function handleClick(index) {
+      if (!gameActive || board[index]) return;
+      clearTimeout(turnTimer);
+      currentPlayer === "X" ? clickSoundX.play() : clickSoundO.play();
+      board[index] = currentPlayer;
+      renderBoard();
+      if (checkWin()) {
+        scores[currentPlayer]++;
+        updateScore();
+        gameActive = false;
+        winSound.play();
+        showOverlay(`🎉 Player ${currentPlayer} Wins!`);
+        return;
+      }
+      if (board.every(cell => cell)) {
+        drawSound.play();
+        showOverlay("🤝 It's a Draw!");
+        gameActive = false;
+        return;
+      }
+      currentPlayer = currentPlayer === "X" ? "O" : "X";
+      statusEl.textContent = `Player ${currentPlayer}'s turn`;
+      startTimer();
+      if (currentMode === "AI" && currentPlayer === "O") {
+        setTimeout(() => aiMove(), 500);
+      }
+    }
+    function startTimer() {
+      let timeLeft = 5;
+      timerEl.textContent = `⏳ Time Left: ${timeLeft}s`;
+      clearInterval(turnTimer);
+      turnTimer = setInterval(() => {
+        timeLeft--;
+        timerEl.textContent = `⏳ Time Left: ${timeLeft}s`;
+        if (timeLeft <= 0) {
+          clearInterval(turnTimer);
+          statusEl.textContent = `⏳ Time's up! Skipping turn...`;
+          currentPlayer = currentPlayer === "X" ? "O" : "X";
+          statusEl.textContent = `Player ${currentPlayer}'s turn`;
+          startTimer();
+          if (currentMode === "AI" && currentPlayer === "O") {
+            setTimeout(() => aiMove(), 500);
+          }
+        }
+      }, 1000);
+    }
+    function aiMove() {
+      let empty = board.map((v, i) => v === "" ? i : null).filter(v => v !== null);
+      let move = empty[Math.floor(Math.random() * empty.length)];
+      handleClick(move);
+    }
+    function checkWin() {
+      const winCombos = [
+        [0,1,2],[3,4,5],[6,7,8],
+        [0,3,6],[1,4,7],[2,5,8],
+        [0,4,8],[2,4,6]
+      ];
+      return winCombos.some(([a,b,c]) => board[a] && board[a] === board[b] && board[b] === board[c]);
+    }
+    function showOverlay(msg) {
+      resultText.textContent = msg;
+      overlay.style.display = "flex";
+      clearInterval(turnTimer);
+    }
+    function updateScore() {
+      scoreboardEl.textContent = `X: ${scores.X} | O: ${scores.O}`;
+    }
+  </script>
+</body>
+</html>
+"""
+
+# Save HTML content to file
+html_path = os.path.join(game_dir, "index.html")
+with open(html_path, "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+# Zip the game folder
+zip_path = "/mnt/data/TicTacToe_HTML_Game.zip"
+with ZipFile(zip_path, "w") as zipf:
+    zipf.write(html_path, arcname="index.html")
+
+zip_path
